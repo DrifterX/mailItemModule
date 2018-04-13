@@ -1,4 +1,18 @@
-﻿Import-Module $PSScriptRoot\Microsoft.Exchange.WebServices.dll
+﻿$test = Get-Module Microsoft.Exchange.WebServices
+
+if(!$test) {
+    $dllInstallPath = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Exchange\Web Services\2.2" -ErrorAction SilentlyContinue
+    if(!$dllInstallPath) {
+        $dllInstallPath = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Exchange\Web Services\2.0" -ErrorAction SilentlyContinue
+    }
+    if($dllInstallPath -ne $null) {
+        $ewsDLLPath = $dllInstallPath.'Install Directory' + ".\Microsoft.Exchange.WebServices.dll"
+        Import-Module $ewsDLLPath
+    }
+    else {
+        Write-Error "Please install the Exchange Web Services API. Please download them here: https://www.microsoft.com/en-us/download/details.aspx?id=42951"
+    }
+}
 Update-FormatData -PrependPath $PSScriptRoot\output.format.ps1xml
 Function Connect-EXWebService {
     <#
