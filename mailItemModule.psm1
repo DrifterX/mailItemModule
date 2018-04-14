@@ -105,7 +105,7 @@ Function Get-MailItem {
     This parameter is used to specify the mailbox that will be searched. It allows the same types as Get-Mailbox (AKA alias, email address, and display name). This parameter is mandatory.
 
     .PARAMETER Folder
-    This parameter specifies the folder to search. It accepts Inbox, Calendar, Contact, MsgFolderRoot, DeletedItems, and Root. MsgFolderRoot will search all folders in the mailbox that are a Note Folder Class (Folders containing mail messages), and Root will search all folders in the entire inbox. Root will search ALL folders, including attempting some system folders which will error. This parameter is mandatory
+    This parameter specifies the folder to search. It accepts Inbox, Calendar, Contact, MsgFolderRoot, DeletedItems, ArchiveMsgFolderRoot, and Root. MsgFolderRoot will search all folders in the mailbox that are a Note Folder Class (Folders containing mail messages), and Root will search all folders in the entire inbox. Root will search ALL folders, including attempting some system folders which will error. This parameter is mandatory
 
     .PARAMETER SubFolder
     This parameter allows you to specify a subfolder within the well known folder specified in the Folder parameter.
@@ -146,7 +146,7 @@ Function Get-MailItem {
      [Parameter(Mandatory=$true,Position=0,ValueFromPipeline=$true)]
      [string]$Identity,
      [Parameter(Mandatory=$true)]
-     [ValidateSet("Inbox","Calendar","Contacts","MsgFolderRoot","DeletedItems","Root","Tasks","SentItems")]
+     [ValidateSet("Inbox","Calendar","Contacts","MsgFolderRoot","DeletedItems","Root","Tasks","SentItems","ArchiveMsgFolderRoot")]
      [string]$Folder,
      [Parameter(Mandatory=$false)]
      [string]$SubFolder,
@@ -461,7 +461,7 @@ function Import-MailItem {
 		[Parameter(Mandatory=$true,Position=1)]
 		[String]$TargetMailbox,
 		[Parameter(Mandatory=$true,Position=2)]
-        [ValidateSet("Inbox","Calendar","Contacts","Tasks")]
+        [ValidateSet("Inbox","Calendar","Contacts","Tasks","ArchiveMsgFolderRoot")]
         [string]$TargetFolder,
         [Parameter(Mandatory=$false)]
         [string]$SubFolder
@@ -495,7 +495,7 @@ function Import-MailItem {
     }
     
     $importEmail = Get-Item $Path
-    if($TargetFolder -like "Inbox") {
+    if($TargetFolder -like "Inbox" -or $TargetFolder -like "ArchiveMsgFolderRoot") {
         $uploadEmail = New-Object Microsoft.Exchange.WebServices.Data.EmailMessage($exService)
     }
     elseif($TargetFolder -like "Calendar") {
@@ -535,7 +535,7 @@ function Get-MailFolder {
 	This is a required parameter.
 
     .PARAMETER Folder
-    This parameter specifies the well known folder to be searched. It accepts Inbox, Calendar, Contacts, or Tasks.
+    This parameter specifies the well known folder to be searched. It accepts Inbox, Calendar, Contacts, ArchiveMsgFolderRoot, or Tasks.
 	This is a required parameter.
 
 	.PARAMETER SubFolder
@@ -559,7 +559,7 @@ function Get-MailFolder {
         [Parameter(Mandatory=$true,Position=0)]
         [string]$Identity,
         [Parameter(Mandatory=$true,Position=1)]
-        [ValidateSet("Inbox","Calendar","Contacts","Tasks")]
+        [ValidateSet("Inbox","Calendar","Contacts","Tasks","ArchiveMsgFolderRoot")]
         [string]$Folder,
         [Parameter(Mandatory=$false)]
         [string]$SubFolder,
@@ -663,7 +663,7 @@ function New-MailFolder {
 	This is a required parameter.
 
     .PARAMETER Folder
-    This parameter specifies the well known folder. It accepts Inbox, Calendar, Contacts, or Tasks.
+    This parameter specifies the well known folder. It accepts Inbox, Calendar, Contacts, ArchiveMsgFolderRoot, or Tasks.
 	This is a required parameter.
 
 	.PARAMETER NewSubFolder
@@ -685,7 +685,7 @@ function New-MailFolder {
         [Parameter(Mandatory=$true,Position=0)]
         [string]$Identity,
         [Parameter(Mandatory=$true,Position=1)]
-        [ValidateSet("Inbox","Calendar","Contacts","Tasks")]
+        [ValidateSet("Inbox","Calendar","Contacts","Tasks","ArchiveMsgFolderRoot")]
         [string]$Folder,
         [Parameter(Mandatory=$true,Position=2)]
         [string]$NewSubFolder
