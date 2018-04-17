@@ -58,7 +58,8 @@ Function Connect-EXWebService {
         [string]$EWSUrl="https://outlook.office365.com/EWS/Exchange.asmx",
 		[Parameter(Mandatory=$false)]
 		[switch]$Force
-	)
+    )
+    begin {}
 	Process {
 		#Try to get exchange service object from global scope
 		$existingExSvcVar = (Get-Variable -Name exService -Scope Global -ErrorAction:SilentlyContinue) -ne $null
@@ -84,7 +85,8 @@ Function Connect-EXWebService {
         else {
             Write-Error "Exchange Connection already established!"
 	        }
-	    }
+        }
+    end {}
     }
 
 Function Get-MailItem {
@@ -163,142 +165,125 @@ Function Get-MailItem {
      [Parameter(Mandatory=$false)]
      [string]$Resultsize
     )
-    #Internal Function for grabbing mail items
-    function getitems([System.Collections.Generic.List[PSObject]]$list, $Resultsize, $folderObj, $searchFilter) {
-        $pageSize = 1000
-        $offset = 0
-        $itemsView = New-Object Microsoft.Exchange.WebServices.Data.ItemView(($pageSize+1),$offset)
-        $moreItems = $true
-        if($items.Count -eq 0) {
-            $list = New-Object System.Collections.Generic.List[PSObject]
+    begin {
+        #Checking for EWS Service
+        if(!$exService) {
+            Write-Error "You are not connected to EWS! Please run the Connect-EWSService cmdlet before running this!"
+            return
             }
-        while($moreItems -eq $true -and $list.Count -as [double] -lt $Resultsize) {
-            $mailItems = $exService.FindItems($folderObj.Id, $searchFilter, $itemsView)
-            foreach($item in $mailItems.Items) {
-                $list.Add($item)
-                if($list.Count -eq $Resultsize) {
-                    break
-                    }
-                }
-            $itemsView.Offset += $pageSize
-            $moreItems = $mailItems.MoreAvailable
+        #Resolving Identity
+        $mailboxName = resolveName -Identity $Identity
+        if($mailboxName -eq $null) {
+            return
+        }
+    }
+    process {
+        #Setting up search criteria
+        $searchFilter = New-Object System.Collections.Generic.List[Microsoft.Exchange.WebServices.Data.SearchFilter]
+        if($Subject) {
+            $subjectItem = [Microsoft.Exchange.WebServices.Data.ItemSchema]::Subject
+            $subSearch = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+ContainsSubstring($subjectItem, $Subject)
+            $searchFilter.Add($subSearch)
             }
-        return [System.Collections.Generic.List[PSObject]]$list
-        }
-    #Checking for EWS Service
-    if(!$exService) {
-        Write-Error "You are not connected to EWS! Please run the Connect-EWSService cmdlet before running this!"
-        return
-        }
-    #Resolving Identity
-    $mailboxName = resolveName -Identity $Identity
-    if($mailboxName -eq $null) {
-        return
-    }
-    #Setting up search criteria
-    $searchFilter = New-Object System.Collections.Generic.List[Microsoft.Exchange.WebServices.Data.SearchFilter]
-    if($Subject) {
-        $subjectItem = [Microsoft.Exchange.WebServices.Data.ItemSchema]::Subject
-        $subSearch = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+ContainsSubstring($subjectItem, $Subject)
-        $searchFilter.Add($subSearch)
-        }
-    if($ToAddress) {
-        $toAddressItem = [Microsoft.Exchange.WebServices.Data.ItemSchema]::DisplayTo
-        $toSearch = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+ContainsSubstring($toAddressItem, $ToAddress)
-        $searchFilter.Add($toSearch)
-        }
-    if($FromAddress) {
-        $FromAddressItem = [Microsoft.Exchange.WebServices.Data.EmailMessageSchema]::From
-        $fromSearch = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+ContainsSubstring($FromAddressItem, $FromAddress)
-        $searchFilter.Add($fromSearch)
-        }
-    if($StartDate) {
-        $startDateItem = [Microsoft.Exchange.WebServices.Data.ItemSchema]::DateTimeReceived
-        $startDateSearch = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+IsGreaterThanOrEqualTo($startDateItem, $StartDate)
-        $searchFilter.Add($startDateSearch)
-        }
-    if($EndDate) {
-        $endDateItem = [Microsoft.Exchange.WebServices.Data.ItemSchema]::DateTimeReceived
-        $endDateSearch = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+IsLessThanOrEqualTo($endDateItem, $EndDate)
-        $searchFilter.Add($endDateSearch)
-        }
-    if($searchFilter.Count -eq 0) {
-        $searchFilter = $null
-        }
-    elseif($searchFilter.Count -eq 1) {
-        $searchFilter = $searchFilter[0]
-        }
-    else {
-        $searchFilter = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+SearchFilterCollection('and', $searchFilter.ToArray())
-        }
-
-    #Connecting to mailbox
-    $ExService.ImpersonatedUserId = New-Object Microsoft.Exchange.Webservices.Data.ImpersonatedUserID([Microsoft.Exchange.Webservices.Data.ConnectingIDType]::SmtpAddress,$MailboxName)
-    $folderid = New-Object Microsoft.Exchange.WebServices.Data.FolderId([Microsoft.Exchange.WebServices.Data.WellKnownFolderName]::$Folder,$MailboxName)
-    try {
-        $folderObj = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService,$folderID)
-    }
-    catch {
-        Write-Error $_
-        return
-    }
-    if(!$SubFolder) {
-        $subFolders = New-Object System.Collections.Generic.List[Microsoft.Exchange.WebServices.Data.ServiceObject]
-        $pageSize = 1000
-        $offset = 0
-        $folderView = New-Object Microsoft.Exchange.WebServices.Data.FolderView(($pageSize+1),$offset)
-        $folderView.Traversal = [Microsoft.Exchange.WebServices.Data.FolderTraversal]::Deep
-        if($Folder -like "MsgFolderRoot") {
-            $folderClass = [Microsoft.Exchange.WebServices.Data.FolderSchema]::FolderClass
-            $folderFilter = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+ContainsSubstring($folderClass,"IPF.Note")
+        if($ToAddress) {
+            $toAddressItem = [Microsoft.Exchange.WebServices.Data.ItemSchema]::DisplayTo
+            $toSearch = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+ContainsSubstring($toAddressItem, $ToAddress)
+            $searchFilter.Add($toSearch)
+            }
+        if($FromAddress) {
+            $FromAddressItem = [Microsoft.Exchange.WebServices.Data.EmailMessageSchema]::From
+            $fromSearch = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+ContainsSubstring($FromAddressItem, $FromAddress)
+            $searchFilter.Add($fromSearch)
+            }
+        if($StartDate) {
+            $startDateItem = [Microsoft.Exchange.WebServices.Data.ItemSchema]::DateTimeReceived
+            $startDateSearch = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+IsGreaterThanOrEqualTo($startDateItem, $StartDate)
+            $searchFilter.Add($startDateSearch)
+            }
+        if($EndDate) {
+            $endDateItem = [Microsoft.Exchange.WebServices.Data.ItemSchema]::DateTimeReceived
+            $endDateSearch = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+IsLessThanOrEqualTo($endDateItem, $EndDate)
+            $searchFilter.Add($endDateSearch)
+            }
+        if($searchFilter.Count -eq 0) {
+            $searchFilter = $null
+            }
+        elseif($searchFilter.Count -eq 1) {
+            $searchFilter = $searchFilter[0]
             }
         else {
-            $folderFilter = $null
+            $searchFilter = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+SearchFilterCollection('and', $searchFilter.ToArray())
             }
-        $moreFolders = $true
-        while($moreFolders) {
-            $folderItems = $exService.FindFolders($folderObj.Id,$folderFilter,$folderView)
-            foreach($fold in $folderItems.Folders) {
-                $subfolders.Add($fold)
+
+        #Connecting to mailbox
+        $ExService.ImpersonatedUserId = New-Object Microsoft.Exchange.Webservices.Data.ImpersonatedUserID([Microsoft.Exchange.Webservices.Data.ConnectingIDType]::SmtpAddress,$MailboxName)
+        $folderid = New-Object Microsoft.Exchange.WebServices.Data.FolderId([Microsoft.Exchange.WebServices.Data.WellKnownFolderName]::$Folder,$MailboxName)
+        try {
+            $folderObj = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService,$folderID)
+        }
+        catch {
+            Write-Error $_
+            return
+        }
+        if(!$SubFolder) {
+            $subFolders = New-Object System.Collections.Generic.List[Microsoft.Exchange.WebServices.Data.ServiceObject]
+            $pageSize = 1000
+            $offset = 0
+            $folderView = New-Object Microsoft.Exchange.WebServices.Data.FolderView(($pageSize+1),$offset)
+            $folderView.Traversal = [Microsoft.Exchange.WebServices.Data.FolderTraversal]::Deep
+            if($Folder -like "MsgFolderRoot") {
+                $folderClass = [Microsoft.Exchange.WebServices.Data.FolderSchema]::FolderClass
+                $folderFilter = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+ContainsSubstring($folderClass,"IPF.Note")
                 }
-            $folderView.Offset += $pageSize
-            $moreFolders = $folderItems.MoreAvailable
+            else {
+                $folderFilter = $null
+                }
+            $moreFolders = $true
+            while($moreFolders) {
+                $folderItems = $exService.FindFolders($folderObj.Id,$folderFilter,$folderView)
+                foreach($fold in $folderItems.Folders) {
+                    $subfolders.Add($fold)
+                    }
+                $folderView.Offset += $pageSize
+                $moreFolders = $folderItems.MoreAvailable
+                }
+            }
+        else {
+            $folderSearchFilter = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+IsEqualTo([Microsoft.Exchange.WebServices.Data.FolderSchema]::DisplayName, $SubFolder)
+            $folderView = New-Object Microsoft.Exchange.WebServices.Data.FolderView(1)
+            $findFolderResults = $exService.FindFolders($folderObj.Id,$folderSearchFilter,$folderView)
+            if($findFolderResults.Folders.Count -lt 1) {
+                Write-Error "Subfolder does not exist in current context."
+                return 
+            }
+            else {
+                $folderObj = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService, $findFolderResults.Id)
             }
         }
-    else {
-         $folderSearchFilter = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+IsEqualTo([Microsoft.Exchange.WebServices.Data.FolderSchema]::DisplayName, $SubFolder)
-         $folderView = New-Object Microsoft.Exchange.WebServices.Data.FolderView(1)
-         $findFolderResults = $exService.FindFolders($folderObj.Id,$folderSearchFilter,$folderView)
-         if($findFolderResults.Folders.Count -lt 1) {
-            Write-Error "Subfolder does not exist in current context."
-            return 
-         }
-         else {
-             $folderObj = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService, $findFolderResults.Id)
-         }
-    }
-    
-    try { $Resultsize = [int]$Resultsize }
-    catch {}
+        
+        try { $Resultsize = [int]$Resultsize }
+        catch {}
 
-    #Retreving Items
-    $items = New-Object System.Collections.Generic.List[PSObject]
-    if($Resultsize -eq "Unlimited") {
-        $Resultsize = [double]::PositiveInfinity
-        }
-    elseif($Resultsize -eq 0) {
-        $Resultsize = 1000
-        }
-    $items = getitems -list $items -Resultsize $Resultsize -folderObj $folderObj -searchFilter $searchFilter
-    if($subFolders.Count -gt 0 -and $items.Count -as [double] -lt $Resultsize) {
-        foreach($sub in $subFolders) {
-            $items = getitems -list $items -Resultsize $Resultsize -folderObj $sub -searchFilter $searchFilter
+        #Retreving Items
+        $items = New-Object System.Collections.Generic.List[PSObject]
+        if($Resultsize -eq "Unlimited") {
+            $Resultsize = [double]::PositiveInfinity
             }
-        }
-
-    #Returning mail items found.
-    return $items
+        elseif($Resultsize -eq 0) {
+            $Resultsize = 1000
+            }
+        $items = getitems -list $items -Resultsize $Resultsize -folderObj $folderObj -searchFilter $searchFilter
+        if($subFolders.Count -gt 0 -and $items.Count -as [double] -lt $Resultsize) {
+            foreach($sub in $subFolders) {
+                $items = getitems -list $items -Resultsize $Resultsize -folderObj $sub -searchFilter $searchFilter
+                }
+            }
     }
+    end {
+        #Returning mail items found.
+        return $items
+    }
+}
 
 function Remove-MailItem {
     <#
@@ -341,23 +326,29 @@ function Remove-MailItem {
      [string]$DeleteType
     )
 
-    #Checking for EWS Service
-    if(!$exService) {
-        Write-Error "You are not connected to EWS! Please run the Connect-EWSService cmdlet before running this!"
-        return
+    begin {
+        #Checking for EWS Service
+        if(!$exService) {
+            Write-Error "You are not connected to EWS! Please run the Connect-EWSService cmdlet before running this!"
+            return
         }
-    $deleteMode = [Microsoft.Exchange.WebServices.Data.DeleteMode]::$DeleteType
-    $message = [Microsoft.Exchange.WebServices.Data.Item]::Bind($exService,$MailItem.Id)
-    if($Confirm -eq $false) {
-        $message.Delete($deleteMode)
     }
-    else {
-        $answer = Read-Host "Are you sure you want to delete $($message.Subject)? (Y/N)"
-        if($answer -like "Y*") {
+    process {
+        $deleteMode = [Microsoft.Exchange.WebServices.Data.DeleteMode]::$DeleteType
+        $message = [Microsoft.Exchange.WebServices.Data.Item]::Bind($exService,$MailItem.Id)
+    }
+    end {
+        if($Confirm -eq $false) {
             $message.Delete($deleteMode)
         }
         else {
-            return
+            $answer = Read-Host "Are you sure you want to delete $($message.Subject)? (Y/N)"
+            if($answer -like "Y*") {
+                $message.Delete($deleteMode)
+            }
+            else {
+                return
+            }
         }
     }
 }
@@ -395,29 +386,36 @@ function Export-MailItem {
      [Microsoft.Exchange.WebServices.Data.Item]$MailItem,
      [string]$Path
     )
-    if(!$exService) {
-        Write-Error "You are not connected to EWS! Please run the Connect-EWSService cmdlet before running this!"
-        return
+    begin {
+        if(!$exService) {
+            Write-Error "You are not connected to EWS! Please run the Connect-EWSService cmdlet before running this!"
+            return
         }
-    try {
-        $message = [Microsoft.Exchange.WebServices.Data.Item]::Bind($exService,$MailItem.Id)
-        }
-    catch {
-        return $false
-        }
-    $itemProperties = New-Object Microsoft.Exchange.WebServices.Data.PropertySet([Microsoft.Exchange.WebServices.Data.ItemSchema]::MimeContent)
-    $message.Load($itemProperties)
-    try {
-        $fstream = New-Object System.IO.FileStream($Path,[System.IO.FileMode]::Create)
-        $fstream.Write($message.MimeContent.Content, 0, $message.MimeContent.Content.Length)
-        $fstream.Close()
-        }
-    catch {
-        Write-Host "Unable to write to disk"
-        return $false
-        }
-    return $true
     }
+    process {
+        try {
+            $message = [Microsoft.Exchange.WebServices.Data.Item]::Bind($exService,$MailItem.Id)
+        }
+        catch {
+            Write-Error "Unable to locate message."
+            return $false
+        }
+        $itemProperties = New-Object Microsoft.Exchange.WebServices.Data.PropertySet([Microsoft.Exchange.WebServices.Data.ItemSchema]::MimeContent)
+        $message.Load($itemProperties)
+    }
+    end {
+        try {
+            $fstream = New-Object System.IO.FileStream($Path,[System.IO.FileMode]::Create)
+            $fstream.Write($message.MimeContent.Content, 0, $message.MimeContent.Content.Length)
+            $fstream.Close()
+            }
+        catch {
+            Write-Error "Unable to write to disk"
+            return $false
+            }
+        return $true
+    }
+}
 
 function Import-MailItem {
 	<#
@@ -465,58 +463,62 @@ function Import-MailItem {
         [string]$TargetFolder,
         [Parameter(Mandatory=$false)]
         [string]$SubFolder
-		)
-    if(!$exService) {
-            Write-Error "You are not connected to EWS! Please run the Connect-EWSService cmdlet before running this!"
+        )
+    begin {
+        if(!$exService) {
+                Write-Error "You are not connected to EWS! Please run the Connect-EWSService cmdlet before running this!"
+                return
+            }
+        #Resolving Identity
+        $mailboxName = resolveName -Identity $TargetMailbox
+        if($mailboxName -eq $null) {
             return
         }
-    #Resolving Identity
-    $mailboxName = resolveName -Identity $TargetMailbox
-    if($mailboxName -eq $null) {
-        return
     }
-    #Setting up folder access.
-    $ExService.ImpersonatedUserId = New-Object Microsoft.Exchange.WebServices.Data.ImpersonatedUserId([Microsoft.Exchange.WebServices.Data.ConnectingIdType]::SmtpAddress, $mailboxName)
-    $folderID = New-Object Microsoft.Exchange.WebServices.Data.FolderId([Microsoft.Exchange.WebServices.Data.WellKnownFolderName]::$TargetFolder, $mailboxName)
-    try {
-        $folder = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService,$folderID)
-    }
-    catch {
-        Write-Error $_
-        return
-    }
-    if($SubFolder) {
-        $folderView = New-Object Microsoft.Exchange.WebServices.Data.FolderView(1)
-        $folderSearchFilter = = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+IsEqualTo([Microsoft.Exchange.WebServices.Data.FolderSchema]::DisplayName, $SubFolder)
-        $findFolderResults = $ExService.FindFolders($folder.ID, $folderSearchFilter, $folderView)
-        if($findFolderResults.Folders.Count -eq 1) {
-            $folder = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService, $findFolderResults.Id)
+    process {
+        #Setting up folder access.
+        $ExService.ImpersonatedUserId = New-Object Microsoft.Exchange.WebServices.Data.ImpersonatedUserId([Microsoft.Exchange.WebServices.Data.ConnectingIdType]::SmtpAddress, $mailboxName)
+        $folderID = New-Object Microsoft.Exchange.WebServices.Data.FolderId([Microsoft.Exchange.WebServices.Data.WellKnownFolderName]::$TargetFolder, $mailboxName)
+        try {
+            $folder = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService,$folderID)
+        }
+        catch {
+            Write-Error $_
+            return
+        }
+        if($SubFolder) {
+            $folderView = New-Object Microsoft.Exchange.WebServices.Data.FolderView(1)
+            $folderSearchFilter = = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+IsEqualTo([Microsoft.Exchange.WebServices.Data.FolderSchema]::DisplayName, $SubFolder)
+            $findFolderResults = $ExService.FindFolders($folder.ID, $folderSearchFilter, $folderView)
+            if($findFolderResults.Folders.Count -eq 1) {
+                $folder = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService, $findFolderResults.Id)
+            }
+        }
+        $importEmail = Get-Item $Path
+        if($TargetFolder -like "Inbox" -or $TargetFolder -like "ArchiveMsgFolderRoot") {
+            $uploadEmail = New-Object Microsoft.Exchange.WebServices.Data.EmailMessage($exService)
+        }
+        elseif($TargetFolder -like "Calendar") {
+            $uploadEmail = New-Object Microsoft.Exchange.WebServices.Data.Appointment($exService)
+        }
+        elseif($TargetFolder -like "Contacts") {
+            $uploadEmail = New-Object Microsoft.Exchange.WebServices.Data.Contact($exService)
+        }
+        elseif($TargetFolder -like "Tasks") {
+            $uploadEmail = New-Object Microsoft.Exchange.WebServices.Data.Task($exService)
         }
     }
-    
-    $importEmail = Get-Item $Path
-    if($TargetFolder -like "Inbox" -or $TargetFolder -like "ArchiveMsgFolderRoot") {
-        $uploadEmail = New-Object Microsoft.Exchange.WebServices.Data.EmailMessage($exService)
-    }
-    elseif($TargetFolder -like "Calendar") {
-        $uploadEmail = New-Object Microsoft.Exchange.WebServices.Data.Appointment($exService)
-    }
-    elseif($TargetFolder -like "Contacts") {
-        $uploadEmail = New-Object Microsoft.Exchange.WebServices.Data.Contact($exService)
-    }
-    elseif($TargetFolder -like "Tasks") {
-        $uploadEmail = New-Object Microsoft.Exchange.WebServices.Data.Task($exService)
-    }
-    
-    [byte[]]$emailInByte = Get-Content -Encoding Byte $importEmail
-    $uploadEmail.MimeContent = New-Object Microsoft.Exchange.Webservices.Data.MimeContent("us-ascii", $emailInByte)
-    $PR_Flags = New-Object Microsoft.Exchange.Webservices.Data.ExtendedPropertyDefinition(3591, [Microsoft.Exchange.WebServices.Data.MapiPropertyType]::Integer)
-    $uploadEmail.SetExtendedProperty($PR_Flags,"1")
-    if($TargetFolder -like "Calendar") {
-        $uploadEmail.Save($folder.ID, [Microsoft.Exchange.WebServices.Data.SendInvitationsMode]::SendToNone)
-    }
-    else {
-        $uploadEmail.Save($folder.ID)
+    end {
+        [byte[]]$emailInByte = Get-Content -Encoding Byte $importEmail
+        $uploadEmail.MimeContent = New-Object Microsoft.Exchange.Webservices.Data.MimeContent("us-ascii", $emailInByte)
+        $PR_Flags = New-Object Microsoft.Exchange.Webservices.Data.ExtendedPropertyDefinition(3591, [Microsoft.Exchange.WebServices.Data.MapiPropertyType]::Integer)
+        $uploadEmail.SetExtendedProperty($PR_Flags,"1")
+        if($TargetFolder -like "Calendar") {
+            $uploadEmail.Save($folder.ID, [Microsoft.Exchange.WebServices.Data.SendInvitationsMode]::SendToNone)
+        }
+        else {
+            $uploadEmail.Save($folder.ID)
+        }
     }
 }
     
@@ -566,86 +568,92 @@ function Get-MailFolder {
         [Parameter(Mandatory=$false)]
         [string]$Resultsize = "1000"
     )
-    if(!$exService) {
-        Write-Error "You are not connected to EWS! Please run the Connect-EWSService cmdlet before running this!"
-        return
-        }
-    #Resolving Identity
-    $mailboxName = resolveName -Identity $Identity
-    if($mailboxName -eq $null) {
-        return
-    }
-    $ExService.ImpersonatedUserId = New-Object Microsoft.Exchange.WebServices.Data.ImpersonatedUserId([Microsoft.Exchange.WebServices.Data.ConnectingIdType]::SmtpAddress, $mailboxName)
-    $folderID = New-Object Microsoft.Exchange.WebServices.Data.FolderId([Microsoft.Exchange.WebServices.Data.WellKnownFolderName]::$Folder, $mailboxName)
-    try {
-        $folderObj = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService,$folderID)
-    }
-    catch {
-        Write-Error $_
-        return
-    }
-    try {$Resultsize = [int]$Resultsize}
-    catch {}
-    if($Resultsize -eq "Unlimited") {
-        $Resultsize = [double]::PositiveInfinity
-    }
-    if($SubFolder) {
-        $subFolders = New-Object System.Collections.Generic.List[Microsoft.Exchange.WebServices.Data.ServiceObject]
-        $folderSearchFilter = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+IsEqualTo([Microsoft.Exchange.WebServices.Data.FolderSchema]::DisplayName, $SubFolder)
-        $folderView = New-Object Microsoft.Exchange.WebServices.Data.FolderView(1)
-        $folderView.Traversal = [Microsoft.Exchange.WebServices.Data.FolderTraversal]::Deep
-        $findFolderResults = $exService.FindFolders($folderObj.Id,$folderSearchFilter,$folderView)
-        if($findFolderResults.Folders.Count -lt 1) {
-            Write-Error "Subfolder does not exist in current context."
+    begin{
+        if(!$exService) {
+            Write-Error "You are not connected to EWS! Please run the Connect-EWSService cmdlet before running this!"
+            return
+            }
+        #Resolving Identity
+        $mailboxName = resolveName -Identity $Identity
+        if($mailboxName -eq $null) {
             return
         }
-        else {
-            $folderObj = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService, $findFolderResults.Id)
+    }
+    process {
+        $ExService.ImpersonatedUserId = New-Object Microsoft.Exchange.WebServices.Data.ImpersonatedUserId([Microsoft.Exchange.WebServices.Data.ConnectingIdType]::SmtpAddress, $mailboxName)
+        $folderID = New-Object Microsoft.Exchange.WebServices.Data.FolderId([Microsoft.Exchange.WebServices.Data.WellKnownFolderName]::$Folder, $mailboxName)
+        try {
+            $folderObj = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService,$folderID)
         }
-        $subFolders.Add($folderObj)
-        $pageSize = 1000
-        $offset = 0
-        $folderView = New-Object Microsoft.Exchange.WebServices.Data.FolderView(($pageSize+1),$offset)
-        $folderView.Traversal = [Microsoft.Exchange.WebServices.Data.FolderTraversal]::Deep
-        $moreFolders = $true
-        while($moreFolders -and $subFolders.Count -lt $Resultsize) {
-            $folderItems = $exService.FindFolders($folderObj.Id,$folderFilter,$folderView)
-            foreach($fold in $folderItems.Folders) {
-                if($subFolders.Count -lt $Resultsize) {
-                    $subfolders.Add($fold)
-                }
-                else {
-                    break
-                }
+        catch {
+            Write-Error $_
+            return
+        }
+        try {$Resultsize = [int]$Resultsize}
+        catch {}
+        if($Resultsize -eq "Unlimited") {
+            $Resultsize = [double]::PositiveInfinity
+        }
+        if($SubFolder) {
+            $subFolders = New-Object System.Collections.Generic.List[Microsoft.Exchange.WebServices.Data.ServiceObject]
+            $folderSearchFilter = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+IsEqualTo([Microsoft.Exchange.WebServices.Data.FolderSchema]::DisplayName, $SubFolder)
+            $folderView = New-Object Microsoft.Exchange.WebServices.Data.FolderView(1)
+            $folderView.Traversal = [Microsoft.Exchange.WebServices.Data.FolderTraversal]::Deep
+            $findFolderResults = $exService.FindFolders($folderObj.Id,$folderSearchFilter,$folderView)
+            if($findFolderResults.Folders.Count -lt 1) {
+                Write-Error "Subfolder does not exist in current context."
+                return
             }
-            $folderView.Offset += $pageSize
-            $moreFolders = $folderItems.MoreAvailable
+            else {
+                $folderObj = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService, $findFolderResults.Id)
             }
+            $subFolders.Add($folderObj)
+            $pageSize = 1000
+            $offset = 0
+            $folderView = New-Object Microsoft.Exchange.WebServices.Data.FolderView(($pageSize+1),$offset)
+            $folderView.Traversal = [Microsoft.Exchange.WebServices.Data.FolderTraversal]::Deep
+            $moreFolders = $true
+            while($moreFolders -and $subFolders.Count -lt $Resultsize) {
+                $folderItems = $exService.FindFolders($folderObj.Id,$folderFilter,$folderView)
+                foreach($fold in $folderItems.Folders) {
+                    if($subFolders.Count -lt $Resultsize) {
+                        $subfolders.Add($fold)
+                    }
+                    else {
+                        break
+                    }
+                }
+                $folderView.Offset += $pageSize
+                $moreFolders = $folderItems.MoreAvailable
+                }
+        }
+        else {
+            $subFolders = New-Object System.Collections.Generic.List[Microsoft.Exchange.WebServices.Data.ServiceObject]
+            $subFolders.Add($folderObj)
+            $pageSize = 1000
+            $offset = 0
+            $folderView = New-Object Microsoft.Exchange.WebServices.Data.FolderView(($pageSize+1),$offset)
+            $folderView.Traversal = [Microsoft.Exchange.WebServices.Data.FolderTraversal]::Deep
+            $moreFolders = $true
+            while($moreFolders -and $subFolders.Count -lt $Resultsize) {
+                $folderItems = $exService.FindFolders($folderObj.Id,$folderFilter,$folderView)
+                foreach($fold in $folderItems.Folders) {
+                    if($subFolders.Count -lt $Resultsize) {
+                        $subfolders.Add($fold)
+                    }
+                    else {
+                        break
+                    }
+                }
+                $folderView.Offset += $pageSize
+                $moreFolders = $folderItems.MoreAvailable
+                }
+        }
     }
-    else {
-        $subFolders = New-Object System.Collections.Generic.List[Microsoft.Exchange.WebServices.Data.ServiceObject]
-        $subFolders.Add($folderObj)
-        $pageSize = 1000
-        $offset = 0
-        $folderView = New-Object Microsoft.Exchange.WebServices.Data.FolderView(($pageSize+1),$offset)
-        $folderView.Traversal = [Microsoft.Exchange.WebServices.Data.FolderTraversal]::Deep
-        $moreFolders = $true
-        while($moreFolders -and $subFolders.Count -lt $Resultsize) {
-            $folderItems = $exService.FindFolders($folderObj.Id,$folderFilter,$folderView)
-            foreach($fold in $folderItems.Folders) {
-                if($subFolders.Count -lt $Resultsize) {
-                    $subfolders.Add($fold)
-                }
-                else {
-                    break
-                }
-            }
-            $folderView.Offset += $pageSize
-            $moreFolders = $folderItems.MoreAvailable
-            }
+    end {
+        #Returning folders
+        return $subFolders
     }
-    #Returning folders
-    return $subFolders
 }
 
 function New-MailFolder {
@@ -690,47 +698,53 @@ function New-MailFolder {
         [Parameter(Mandatory=$true,Position=2)]
         [string]$NewSubFolder
     )
-    if(!$exService) {
-        Write-Error "You are not connected to EWS! Please run the Connect-EWSService cmdlet before running this!"
-        return
+    begin {
+        if(!$exService) {
+            Write-Error "You are not connected to EWS! Please run the Connect-EWSService cmdlet before running this!"
+            return
+            }
+        #Resolving Identity
+        $mailboxName = resolveName -Identity $Identity
+        if($mailboxName -eq $null) {
+            return
         }
-    #Resolving Identity
-    $mailboxName = resolveName -Identity $Identity
-    if($mailboxName -eq $null) {
-        return
     }
-    $ExService.ImpersonatedUserId = New-Object Microsoft.Exchange.WebServices.Data.ImpersonatedUserId([Microsoft.Exchange.WebServices.Data.ConnectingIdType]::SmtpAddress, $mailboxName)
-    $folderID = New-Object Microsoft.Exchange.WebServices.Data.FolderId([Microsoft.Exchange.WebServices.Data.WellKnownFolderName]::$Folder, $mailboxName)
-    try {
-        $folderObj = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService,$folderID)
+    process {
+        $ExService.ImpersonatedUserId = New-Object Microsoft.Exchange.WebServices.Data.ImpersonatedUserId([Microsoft.Exchange.WebServices.Data.ConnectingIdType]::SmtpAddress, $mailboxName)
+        $folderID = New-Object Microsoft.Exchange.WebServices.Data.FolderId([Microsoft.Exchange.WebServices.Data.WellKnownFolderName]::$Folder, $mailboxName)
+        try {
+            $folderObj = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService,$folderID)
+        }
+        catch {
+            Write-Error $_
+            return
+        }
+        $folderView = New-Object Microsoft.Exchange.WebServices.Data.FolderView(1)
+        $folderSearchFilter = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+IsEqualTo([Microsoft.Exchange.WebServices.Data.FolderSchema]::DisplayName,$NewSubFolder)
+        $folderResults = $exService.FindFolders($folderObj.Id,$folderSearchFilter,$folderView)
     }
-    catch {
-        Write-Error $_
-        return
-    }
-    $folderView = New-Object Microsoft.Exchange.WebServices.Data.FolderView(1)
-    $folderSearchFilter = New-Object Microsoft.Exchange.WebServices.Data.SearchFilter+IsEqualTo([Microsoft.Exchange.WebServices.Data.FolderSchema]::DisplayName,$NewSubFolder)
-    $folderResults = $exService.FindFolders($folderObj.Id,$folderSearchFilter,$folderView)
-    if($folderResults.Folders.Count -eq 0) {
-        $NewFolder = New-Object Microsoft.Exchange.WebServices.Data.Folder($exService)
-        $NewFolder.DisplayName = $NewSubFolder
-        if($Folder -eq "Inbox") {
-            $NewFolder.FolderClass = "IPF.Note"
+    end {
+        if($folderResults.Folders.Count -eq 0) {
+            $NewFolder = New-Object Microsoft.Exchange.WebServices.Data.Folder($exService)
+            $NewFolder.DisplayName = $NewSubFolder
+            if($Folder -eq "Inbox") {
+                $NewFolder.FolderClass = "IPF.Note"
+            }
+            elseif($Folder -eq "Calendar") {
+                $NewFolder.FolderClass = "IPF.Appointment"
+            }
+            elseif($Folder -eq "Contacts") {
+                $NewFolder.FolderClass = "IPF.Contact"
+            }
+            elseif($Folder -eq "Tasks") {
+                $NewFolder.FolderClass = "IPF.Task"
+            }
+            $NewFolder.Save($folderID)
         }
-        elseif($Folder -eq "Calendar") {
-            $NewFolder.FolderClass = "IPF.Appointment"
+        else {
+            Write-Error "This folder already exists!"
+            return
         }
-        elseif($Folder -eq "Contacts") {
-            $NewFolder.FolderClass = "IPF.Contact"
-        }
-        elseif($Folder -eq "Tasks") {
-            $NewFolder.FolderClass = "IPF.Task"
-        }
-        $NewFolder.Save($folderID)
-    }
-    else {
-        Write-Error "This folder already exists!"
-        return
     }
 }
 
@@ -774,26 +788,36 @@ function Remove-MailFolder {
      [ValidateSet("HardDelete","SoftDelete","MoveToDeletedItems")]
      [string]$DeleteType
     )
-
-    if(!$exService) {
-        Write-Error "You are not connected to EWS! Please run the Connect-EWSService cmdlet before running this!"
-        return
-        }
-    $deleteMode = [Microsoft.Exchange.WebServices.Data.DeleteMode]::$DeleteType
-    $folder = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService,$MailFolder.Id)
-    if($Confirm -eq $false) {
-        $folder.Delete($deleteMode)
-    }
-    else {
-        $answer = Read-Host "Are you sure you want to delete $($message.Subject)? (Y/N)"
-        if($answer -like "Y*") {
-            $folder.Delete($deleteMode)
-        }
-        else {
+    begin {
+        if(!$exService) {
+            Write-Error "You are not connected to EWS! Please run the Connect-EWSService cmdlet before running this!"
             return
         }
     }
-
+    process {
+        $deleteMode = [Microsoft.Exchange.WebServices.Data.DeleteMode]::$DeleteType
+        try {
+            $folder = [Microsoft.Exchange.WebServices.Data.Folder]::Bind($exService,$MailFolder.Id)
+        }
+        catch {
+            Write-Error $_
+            return
+        }
+    }
+    end {
+        if($Confirm -eq $false) {
+            $folder.Delete($deleteMode)
+        }
+        else {
+            $answer = Read-Host "Are you sure you want to delete $($message.Subject)? (Y/N)"
+            if($answer -like "Y*") {
+                $folder.Delete($deleteMode)
+            }
+            else {
+                return
+            }
+        }
+    }
 }
 
 function resolveName ($Identity) {
@@ -811,6 +835,28 @@ function resolveName ($Identity) {
         $mailboxName = $Identity
     }
     return $mailboxName
+}
+
+function getitems([System.Collections.Generic.List[PSObject]]$list, $Resultsize, $folderObj, $searchFilter) {
+    $pageSize = 1000
+    $offset = 0
+    $itemsView = New-Object Microsoft.Exchange.WebServices.Data.ItemView(($pageSize+1),$offset)
+    $moreItems = $true
+    if($items.Count -eq 0) {
+        $list = New-Object System.Collections.Generic.List[PSObject]
+    }
+    while($moreItems -eq $true -and $list.Count -as [double] -lt $Resultsize) {
+        $mailItems = $exService.FindItems($folderObj.Id, $searchFilter, $itemsView)
+        foreach($item in $mailItems.Items) {
+            $list.Add($item)
+            if($list.Count -eq $Resultsize) {
+                break
+            }
+        }
+        $itemsView.Offset += $pageSize
+        $moreItems = $mailItems.MoreAvailable
+    }
+    return [System.Collections.Generic.List[PSObject]]$list
 }
 
 Export-ModuleMember -Function Get-MailItem, Remove-MailItem, Export-MailItem, Import-MailItem, Get-MailFolder, New-MailFolder, Connect-ExWebService, Remove-MailFolder
